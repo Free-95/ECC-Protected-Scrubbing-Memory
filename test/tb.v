@@ -2,7 +2,7 @@
 `timescale 1ns / 1ps
 
 /* This testbench just instantiates the module and makes some convenient wires
-   that can be driven / tested by the cocotb test.py.
+   that can be driven / tested by the cocotb test_secded.py.
 */
 module tb ();
 
@@ -27,8 +27,7 @@ module tb ();
   wire VGND = 1'b0;
 `endif
 
-  // Replace tt_um_example with your module name:
-  tt_um_example user_project (
+  tt_um_secded_13_8 user_project (
 
       // Include power ports for the Gate Level test:
 `ifdef GL_TEST

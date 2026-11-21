@@ -62,7 +62,7 @@ def secded_golden_model(data_in: int, err_pos: int, err_double: int):
     ded = 1 if (p_tot == 0 and syndrome != 0) else 0
     ok  = 1 if (p_tot == 0 and syndrome == 0) else 0
 
-    # Apply correction ONLY on single-bit error (never miscorrect on DED)
+    # Apply correction only on single-bit error (never miscorrect on DED)
     fixed = corrupted ^ ((1 << syndrome) if (sec and syndrome <= 12) else 0)
     data_out = (
         (((fixed >> 12) & 1) << 7) |
@@ -79,7 +79,7 @@ def secded_golden_model(data_in: int, err_pos: int, err_double: int):
 
 async def init_dut(dut):
     """Start 25 MHz clock and apply clean synchronous reset."""
-    clock = Clock(dut.clk, 40, units="ns")
+    clock = Clock(dut.clk, 40, unit="ns")
     cocotb.start_soon(clock.start())
 
     dut.ena.value = 1
@@ -113,7 +113,7 @@ async def test_reset_and_pin_directions(dut):
 @cocotb.test()
 async def test_exhaustive_truth_table_streaming(dut):
     """
-    Exhaustively verify ALL 8,192 combinations (256 data bytes x 32 fault states)
+    Exhaustively verify all 8,192 combinations (256 data bytes x 32 fault states)
     streamed back-to-back at 1 vector per clock cycle to verify exact 1-cycle latency.
     """
     await init_dut(dut)

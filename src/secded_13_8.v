@@ -208,5 +208,7 @@ module secded_corrector (
         fixed[12], fixed[11], fixed[10], fixed[9],
         fixed[7],  fixed[6],  fixed[5],  fixed[3]
     };
+    
+    wire _unused_fixed = &{fixed[8], fixed[4], fixed[2:0], 1'b0};
 endmodule
 
