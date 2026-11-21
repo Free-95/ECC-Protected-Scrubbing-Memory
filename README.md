@@ -20,23 +20,23 @@ This design packs a complete Forward Error Correction (FEC) pipeline onto a sing
 ```text
   ui_in[7:0] (data_in)
            │
-                  ▼
+           ▼
 ┌─────────────────────┐
 │  hamming13_encoder  │  Computes P1, P2, P4, P8 + overall even parity P0 (13-bit codeword)
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │   fault_injector    │◄── uio_in[3:0] (err_pos), uio_in[4] (err_double)
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │    syndrome_calc    │  Computes 4-bit syndrome S[3:0] and overall parity p_tot
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │  secded_corrector   │  Flips single-bit errors; flags uncorrectable double-bit errors
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │   Output Register   │  Registered on posedge clk (1-cycle latency, synchronous rst_n)
 └──────────┬──────────┘
@@ -74,6 +74,7 @@ The design is verified using an exhaustive Cocotb testbench (`test/test_secded.p
 - All 8,192 input combinations (`256` data bytes × `32` fault states) streamed back-to-back at 1 vector/cycle
 - Out-of-range `err_pos` values (`0`, `14`, `15`), mid-operation reset recovery, and unused `uio_in[7:5]` immunity
 
+**Commands:**
 ```sh
 cd test
 make -B             # Run RTL simulation (Icarus Verilog + Cocotb)
@@ -81,22 +82,27 @@ make -B GATES=yes   # Run Gate-Level Simulation (requires gate_level_netlist.v)
 gtkwave tb.fst tb.gtkw
 ```
 
+**Waveform:**
+
 ![Hamming(13,8) SECDED Codec Simulation Waveform](docs/waveform.png)
 
-**Waveform Interpretation:** 
+**Waveform Interpretation:**
+
 The above waveform shows 3 distinct possible error case examples for this digital circuit:
-* In first example, `data_in = 3C`, `err_pos = 0` and `err_double = 0` i.e., no fault injected. The `encoded_code` and `corrupted_code` correctly match. The output `data_out` matches the input `data_in` after 1 cycle latency, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`1`, `0`, `0`) respectively.
-* In second example, `data_in = A5`, `err_pos = 9` and `err_double = 0` i.e., single-bit fault injected. The `encoded_code` and `corrupted_code` correctly differs at bit index `8`, correctly indicated by syndrome value. The output `data_out` matches the input `data_in` due to single-error correction, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`0`, `0`, `1`) respectively.
-* In third example, `data_in = FF`, `err_pos = D` and `err_double = 1` i.e., double-bit fault injected. The `encoded_code` and `corrupted_code` correctly differs at bit indices `12` and `0`, but syndrome value (`C`) can only locate one error at index `12`. The output `data_out` doesn't match the input `data_in` because two simultaneous errors can't be corrected, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`0`, `1`, `0`) respectively.
+* In first example, `data_in = 3C`, `err_pos = 0` and `err_double = 0` i.e., **no fault injected**. The `encoded_code` and `corrupted_code` correctly match. The output `data_out` matches the input `data_in` after 1 cycle latency, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`1`, `0`, `0`) respectively.
+* In second example, `data_in = A5`, `err_pos = 9` and `err_double = 0` i.e., **single-bit fault injected**. The `encoded_code` and `corrupted_code` correctly differs at bit index `8`, correctly indicated by syndrome value. The output `data_out` matches the input `data_in` due to single-error correction, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`0`, `0`, `1`) respectively.
+* In third example, `data_in = FF`, `err_pos = D` and `err_double = 1` i.e., **double-bit fault injected**. The `encoded_code` and `corrupted_code` correctly differs at bit indices `12` and `0`, but syndrome value (`C`) can only locate one error at index `12`. The output `data_out` doesn't match the input `data_in` because two simultaneous errors can't be corrected, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`0`, `1`, `0`) respectively.
 
 ## Repository Layout
 
+* `docs/info.md` — Datasheet documentation
 * `src/secded_13_8.v` — Synthesizable Verilog RTL (`tt_um_secded_13_8` + 4 submodules)
 * `src/config.json` — LibreLane hardening configuration
+* `test/Makefile` — Makefile for compiling and running RTL simulation & GLS
 * `test/test_secded.py` — Exhaustive Cocotb verification suite
 * `test/tb.v` — Verilog testbench wrapper (RTL + GLS power-pin support)
 * `info.yaml` — Tiny Tapeout shuttle metadata and pinout
-* `docs/info.md` — Datasheet documentation
+
 
 ## About Tiny Tapeout
 
