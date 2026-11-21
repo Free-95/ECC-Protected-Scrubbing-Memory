@@ -5,23 +5,23 @@ This project implements an inline **Hamming(13,8) Single-Error-Correcting, Doubl
 ```text
   ui_in[7:0] (data_in)
            │
-                  ▼
+           ▼
 ┌─────────────────────┐
 │  hamming13_encoder  │  Computes P1, P2, P4, P8 + overall even parity P0 (13-bit codeword)
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │   fault_injector    │◄── uio_in[3:0] (err_pos), uio_in[4] (err_double)
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │    syndrome_calc    │  Computes 4-bit syndrome S[3:0] and overall parity p_tot
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │  secded_corrector   │  Flips single-bit errors; flags uncorrectable double-bit errors
 └──────────┬──────────┘
-                  ▼
+           ▼
 ┌─────────────────────┐
 │   Output Register   │  Registered on posedge clk (1-cycle latency, synchronous rst_n)
 └──────────┬──────────┘
