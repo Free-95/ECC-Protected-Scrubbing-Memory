@@ -1,9 +1,9 @@
 # Tiny Tapeout project information
 project:
-  title:        "Hamming(13,8) SECDED Error Corrector & Fault Injector" 
-  author:       "Tejas Patel" 
-  discord:      "freeman.95" 
-  description:  "Inline Hamming(13,8) SECDED encoder, DIP-switch fault injector, and syndrome error corrector with live status flags." 
+  title:        "16x13-bit Hamming(13,8) SECDED ECC-Protected Scrubbing Memory"
+  author:       "Tejas Patel"
+  discord:      "freeman.95"
+  description:  "16-byte Hamming(13,8) SECDED register memory with targeted SEU fault injection, autonomous background scrubbing, and telemetry."
   language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     25000000  # Clock frequency in Hz (or 0 if not applicable)
 
@@ -11,46 +11,47 @@ project:
   tiles: "1x1"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
-  top_module:  "tt_um_secded_13_8"
+  top_module:  "tt_um_ecc_prot_scrub_mem"
 
   # List your project's source files here.
   # Source files must be in ./src and you must list each source file separately, one per line.
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
-    - "secded_13_8.v"
+    - "design_top.v"
+    - "submodules.v"
 
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
 pinout:
   # Inputs
-  ui[0]: "data_in[0]"
-  ui[1]: "data_in[1]"
-  ui[2]: "data_in[2]"
-  ui[3]: "data_in[3]"
-  ui[4]: "data_in[4]"
+  ui[0]: "data_in[0] / err_pos[0]"
+  ui[1]: "data_in[1] / err_pos[1]"
+  ui[2]: "data_in[2] / err_pos[2]"
+  ui[3]: "data_in[3] / err_pos[3]"
+  ui[4]: "data_in[4] / err_double"
   ui[5]: "data_in[5]"
   ui[6]: "data_in[6]"
   ui[7]: "data_in[7]"
 
   # Outputs
-  uo[0]: "data_out[0]"
-  uo[1]: "data_out[1]"
-  uo[2]: "data_out[2]"
-  uo[3]: "data_out[3]"
-  uo[4]: "data_out[4]"
-  uo[5]: "data_out[5]"
-  uo[6]: "data_out[6]"
-  uo[7]: "data_out[7]"
+  uo[0]: "data_out[0] / telem[0]"
+  uo[1]: "data_out[1] / telem[1]"
+  uo[2]: "data_out[2] / telem[2]"
+  uo[3]: "data_out[3] / telem[3]"
+  uo[4]: "data_out[4] / telem[4]"
+  uo[5]: "data_out[5] / telem[5]"
+  uo[6]: "data_out[6] / telem[6]"
+  uo[7]: "data_out[7] / telem[7]"
 
   # Bidirectional pins
-  uio[0]: "err_pos[0] (in)"
-  uio[1]: "err_pos[1] (in)"
-  uio[2]: "err_pos[2] (in)"
-  uio[3]: "err_pos[3] (in)"
-  uio[4]: "err_double (in)"
-  uio[5]: "sec_flag (out)"
-  uio[6]: "ded_flag (out)"
-  uio[7]: "parity_ok (out)"
+  uio[0]: "addr[0] (in)"
+  uio[1]: "addr[1] (in)"
+  uio[2]: "addr[2] (in)"
+  uio[3]: "addr[3] (in)"
+  uio[4]: "cmd[0] (in)"
+  uio[5]: "cmd[1] (in)"
+  uio[6]: "scrub_en (in)"
+  uio[7]: "err_alert (out)"
 
 # Do not change!
 yaml_version: 6

@@ -1,80 +1,88 @@
 ![](../../workflows/gds/badge.svg) ![](../../workflows/docs/badge.svg) ![](../../workflows/test/badge.svg) ![](../../workflows/fpga/badge.svg)
 
-# Hamming(13,8) SECDED Error Corrector & Fault Injector
+# 16×13-bit Hamming(13,8) SECDED ECC-Protected Scrubbing Memory
 
-A digital ASIC implementing an inline **Hamming(13,8) Single-Error-Correcting, Double-Error-Detecting (SECDED) codec** with an on-chip fault injector and live status flags.
+A digital ASIC implementing a **16-byte Hamming(13,8) Single-Error-Correcting, Double-Error-Detecting (SECDED) register memory** with targeted Single-Event Upset (SEU) fault injection, an autonomous background scrubber, and live diagnostic telemetry.
 
 - [Read the full project datasheet](docs/info.md)
 
 ## Overview
 
-This design packs a complete Forward Error Correction (FEC) pipeline onto a single Tiny Tapeout tile (`tt_um_secded_13_8`):
+This design packs a self-healing ECC memory subsystem onto a single Tiny Tapeout tile (`tt_um_ecc_prot_scrub_mem`):
 
-1. **Hamming(13,8) Encoder:** Appends 4 Hamming parity bits (`P1, P2, P4, P8`) and 1 overall even-parity bit (`P0`) to an 8-bit input byte (`ui_in[7:0]`) to form a 13-bit codeword.
-2. **On-Chip Fault Injector:** Intentionally flips 0, 1, or 2 distinct codeword bits using `uio_in[4:0]` to simulate channel noise or single-event upsets in real time.
-3. **Syndrome Calculator:** Recomputes the 4-bit syndrome `S[3:0]` and overall parity `p_tot` using combinational XOR trees.
-4. **SECDED Corrector & Output Register:** Automatically corrects any single-bit error, flags uncorrectable double-bit errors without miscorrecting data, and registers all outputs on `posedge clk` (1-cycle latency).
+1. **16×13-bit ECC Register File:** Stores 16 bytes encoded as 13-bit extended Hamming codewords, resetting cleanly to `13'd0` (valid codeword for `0x00`).
+2. **Targeted SEU Fault Injector:** Intentionally flips 0, 1, or 2 bits directly inside any stored memory word (`mem[addr]`) to simulate radiation-induced bit flips in real time.
+3. **Dual SECDED Decoder Paths:**
+   - **Host Read Path:** Heals single-bit errors on the fly during `CMD_READ` and flags uncorrectable double-bit errors without miscorrecting data.
+   - **Autonomous Background Scrubber:** Sweeps `scrub_ptr` across addresses `0x0`–`0xF` at 1 word/cycle during Read and non-clearing Telemetry cycles, permanently writing healed codewords back to RAM.
+4. **Diagnostic Telemetry & Sticky Alert:** Tracks 4-bit saturating `sec_cnt` and `ded_cnt` counters, `scrub_ptr`, `last_err_addr`, `last_syndrome`, error classification flags, and a sticky `err_alert` output pin (`uio_out[7]`).
 
 ## Architecture
 
 ```text
-  ui_in[7:0] (data_in)
-           │
-           ▼
-┌─────────────────────┐
-│  hamming13_encoder  │  Computes P1, P2, P4, P8 + overall even parity P0 (13-bit codeword)
-└──────────┬──────────┘
-           ▼
-┌─────────────────────┐
-│   fault_injector    │◄── uio_in[3:0] (err_pos), uio_in[4] (err_double)
-└──────────┬──────────┘
-           ▼
-┌─────────────────────┐
-│    syndrome_calc    │  Computes 4-bit syndrome S[3:0] and overall parity p_tot
-└──────────┬──────────┘
-           ▼
-┌─────────────────────┐
-│  secded_corrector   │  Flips single-bit errors; flags uncorrectable double-bit errors
-└──────────┬──────────┘
-           ▼
-┌─────────────────────┐
-│   Output Register   │  Registered on posedge clk (1-cycle latency, synchronous rst_n)
-└──────────┬──────────┘
-           ├──► uo_out[7:0]  (corrected data_out)
-           └──► uio_out[7:5] (parity_ok, ded_flag, sec_flag)
-
+ui_in[7:0] (data_in / fault_cfg)       uio_in[3:0] (addr), uio_in[5:4] (cmd), uio_in[6] (scrub_en)
+   │                                                            │
+   ├──► [hamming13_encoder] ──(13b)──►┐                         │
+   │                                  ▼                         ▼
+   └──► [fault_injector] ◄──(13b)──► ┌─────────────────────────────────────┐
+            (corrupts mem[addr])     │   16 × 13-bit ECC Register File     │
+                                     │   (208 DFFs, resets to valid 0x00)  │
+                                     └──────┬──────────────────────┬───────┘
+                                  mem[addr] │                      │ mem[scrub_ptr]
+                                            ▼                      ▼
+                                   ┌─────────────────┐    ┌─────────────────┐
+                                   │ Host Read Path  │    │ Scrubber Path   │
+                                   │ syndrome_calc + │    │ syndrome_calc + │
+                                   │ secded_corrector│    │ secded_corrector│
+                                   └────────┬────────┘    └────────┬────────┘
+                                            │                      ├──► Healed 13-bit writeback
+                                            │                      └──► Telemetry & Counters
+                                            ▼                           (sec_cnt, ded_cnt, last_*)
+                                   ┌───────────────────────────────────────┐
+                                   │   Output & Sticky Alert Registers     │ (1-cycle latency)
+                                   └────────┬──────────────────────┬───────┘
+                                            ▼                      ▼
+                                       uo_out[7:0]             uio_out[7]
+                                   (data_out / telem)          (err_alert)
 ```
 
-## Pinout 
+## Pinout
 
 | Port | Direction | Signal | Description |
-| :--- | :---: | :--- | :--- |
-| `ui_in[7:0]` | Input | `data_in[7:0]` | Original 8-bit input data byte |
-| `uo_out[7:0]` | Output | `data_out[7:0]` | Corrected 8-bit output byte |
-| `uio[3:0]` | Input | `err_pos[3:0]` | Fault bit position `1`–`13` (`0`, `14`, `15` = no fault) |
-| `uio[4]` | Input | `err_double` | `1` = inject 2 distinct bit flips simultaneously (tests DED) |
-| `uio[5]` | Output | `sec_flag` | High when a 1-bit error was detected and corrected |
-| `uio[6]` | Output | `ded_flag` | High when an uncorrectable 2-bit error is detected |
-| `uio[7]` | Output | `parity_ok` | High when the codeword is error-free |
+| --- | --- | --- | --- |
+| `ui_in[7:0]` | Input | `data_in` / `fault_cfg` | Write byte (`CMD_WRITE`) or `{3'b0, err_double, err_pos[3:0]}` (`CMD_INJECT`) |
+| `uo_out[7:0]` | Output | `data_out` / `telem` | Healed read byte (`CMD_READ`), write-through echo, or telemetry byte (`CMD_TELEM`) |
+| `uio[3:0]` | Input | `addr[3:0]` | Memory address (`0x0`–`0xF`). During `CMD_TELEM`: `[1:0]` selects reg, `[3]=1` clears counters |
+| `uio[5:4]` | Input | `cmd[1:0]` | `00` = Read, `01` = Write, `10` = Inject Fault, `11` = Read/Clear Telemetry |
+| `uio[6]` | Input | `scrub_en` | `1` = enable autonomous background scrubbing during Read and non-clearing Telemetry |
+| `uio[7]` | Output | `err_alert` | Sticky alert flag (asserts on any SEC/DED event; cleared by `rst_n` or `addr[3]=1` telemetry clear) |
 
-    Bidirectional pins config: `uio_oe = 8'b1110_0000`
+Bidirectional pin direction mask: `uio_oe = 8'b1000_0000`
 
-## Status Flag Decoding
+## Telemetry Register Map (`cmd = 2'b11`)
 
-| **Condition** | `parity_ok` | `ded_flag` | `sec_flag` | **Output Behavior** |
-| :--- | :-: | :-: | :-: | :--- |
-| *No Error* | 1 | 0 | 0 | `data_out == data_in` |
-| *Single-Bit Error* | 0 | 0 | 1 | Corrupted bit corrected; `data_out == data_in` |
-| *Double-Bit Error* | 0 | 1 | 0 | Uncorrectable error flagged; no miscorrection applied |
+| `addr[1:0]` | `uo_out[7:4]` | `uo_out[3:0]` | Description |
+| --- | --- | --- | --- |
+| `00` | `ded_cnt[3:0]` | `sec_cnt[3:0]` | 4-bit saturating scrubber error counters (cap at `15`) |
+| `01` | `scrub_ptr[3:0]` | `last_err_addr[3:0]` | Current scrubber address pointer and last faulted address |
+| `10` | `{last_ded, last_sec, 2'b00}` | `last_syndrome[3:0]` | Most recent error classification and 4-bit syndrome |
+| `11` | `4'b0000` | `{3'b000, err_alert}` | Live sticky error alert status bit |
+
+*Setting `addr[3] = 1` on any telemetry read returns the pre-clear snapshot and atomically resets all counters, diagnostic latches, and `err_alert` to `0`.*
 
 ## Verification
 
-The design is verified using an exhaustive Cocotb testbench (`test/test_secded.py`) against an independent Python golden reference model, covering:
-- Synchronous reset and `uio_oe` pin-direction checks
-- All 8,192 input combinations (`256` data bytes × `32` fault states) streamed back-to-back at 1 vector/cycle
-- Out-of-range `err_pos` values (`0`, `14`, `15`), mid-operation reset recovery, and unused `uio_in[7:5]` immunity
+The design is verified using a sign-off Cocotb testbench (`test/test_scrub_mem.py`) checked cycle-by-cycle against an independent Python golden scoreboard, covering:
+
+* Synchronous reset override under active writes/injections and `uio_oe` direction checks
+* All 16 `err_pos` values (`0`–`15`) for both `err_double = 0` and `err_double = 1` (including out-of-range and `err_pos = 13` wrap-around)
+* Cumulative multi-cycle fault injection (same-bit cancellation and distinct-bit escalation to DED)
+* Scrubber pointer advance/pause rules across all commands and same-cycle host/scrubber collision priority
+* Both `sec_cnt` and `ded_cnt` saturation at `15` (`4'hF`), atomic telemetry clear, mid-operation reset, and unused-pin immunity
+* 2,000-cycle deterministic pseudo-random stress test with periodic full-RAM and full-telemetry audits
 
 **Commands:**
+
 ```sh
 cd test
 make -B             # Run RTL simulation (Icarus Verilog + Cocotb)
@@ -82,29 +90,17 @@ make -B GATES=yes   # Run Gate-Level Simulation (requires gate_level_netlist.v)
 gtkwave tb.fst tb.gtkw
 ```
 
-**Waveform:**
-
-![Hamming(13,8) SECDED Codec Simulation Waveform](docs/waveform.png)
-
-**Waveform Interpretation:**
-
-The above waveform shows 3 distinct possible error case examples for this digital circuit:
-* In first example, `data_in = 3C`, `err_pos = 0` and `err_double = 0` i.e., **no fault injected**. The `encoded_code` and `corrupted_code` correctly match. The output `data_out` matches the input `data_in` after 1 cycle latency, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`1`, `0`, `0`) respectively.
-* In second example, `data_in = A5`, `err_pos = 9` and `err_double = 0` i.e., **single-bit fault injected**. The `encoded_code` and `corrupted_code` correctly differs at bit index `8`, correctly indicated by syndrome value. The output `data_out` matches the input `data_in` due to single-error correction, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`0`, `0`, `1`) respectively.
-* In third example, `data_in = FF`, `err_pos = D` and `err_double = 1` i.e., **double-bit fault injected**. The `encoded_code` and `corrupted_code` correctly differs at bit indices `12` and `0`, but syndrome value (`C`) can only locate one error at index `12`. The output `data_out` doesn't match the input `data_in` because two simultaneous errors can't be corrected, and the flags (`parity_ok`, `ded_flag`, `sec_flag`) correctly output (`0`, `1`, `0`) respectively.
-
 ## Repository Layout
 
 * `docs/info.md` — Datasheet documentation
-* `src/secded_13_8.v` — Synthesizable Verilog RTL (`tt_um_secded_13_8` + 4 submodules)
+* `src/design_top.v` — Top-level RTL (`tt_um_ecc_prot_scrub_mem`: 16×13-bit RAM, scrubber FSM, and telemetry)
+* `src/submodules.v` — Hamming(13,8) encoder, fault injector, syndrome calculator, and SECDED corrector
 * `src/config.json` — LibreLane hardening configuration
 * `test/Makefile` — Makefile for compiling and running RTL simulation & GLS
-* `test/test_secded.py` — Exhaustive Cocotb verification suite
+* `test/test_scrub_mem.py` — Sign-off Cocotb verification suite with golden scoreboard
 * `test/tb.v` — Verilog testbench wrapper (RTL + GLS power-pin support)
 * `info.yaml` — Tiny Tapeout shuttle metadata and pinout
-
 
 ## About Tiny Tapeout
 
 Built for [Tiny Tapeout](https://tinytapeout.com) using [LibreLane](https://www.zerotoasiccourse.com/terminology/librelane/).
-

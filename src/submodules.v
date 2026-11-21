@@ -5,92 +5,7 @@
 
 `default_nettype none
 
-module tt_um_secded_13_8 (
-    input  wire [7:0] ui_in,    // Dedicated inputs: data_in[7:0]
-    output wire [7:0] uo_out,   // Dedicated outputs: corrected data_out[7:0]
-    input  wire [7:0] uio_in,   // IOs: [3:0] err_pos, [4] err_double
-    output wire [7:0] uio_out,  // IOs: [5] sec_flag, [6] ded_flag, [7] parity_ok
-    output wire [7:0] uio_oe,   // IOs: Enable path (1=output, 0=input)
-    input  wire       ena,      // always 1 when powered
-    input  wire       clk,      // clock
-    input  wire       rst_n     // active-low reset
-);
-
-    wire [12:0] encoded_code;
-    wire [12:0] corrupted_code;
-    wire [3:0]  syndrome;
-    wire        p_tot;
-
-    wire [7:0]  data_out_comb;
-    wire        sec_flag_comb;
-    wire        ded_flag_comb;
-    wire        parity_ok_comb;
-
-    reg  [7:0]  data_out_reg;
-    reg         sec_flag_reg;
-    reg         ded_flag_reg;
-    reg         parity_ok_reg;
-
-    // Hamming(13,8) SECDED Encoder
-    hamming13_encoder u_enc (
-        .data_in  (ui_in),
-        .code_out (encoded_code)
-    );
-
-    // On-Chip DIP-Switch Fault Injector
-    fault_injector u_inj (
-        .code_in    (encoded_code),
-        .err_pos    (uio_in[3:0]),
-        .err_double (uio_in[4]),
-        .code_out   (corrupted_code)
-    );
-
-    // Syndrome & Overall Parity Calculator
-    syndrome_calc u_syn (
-        .code_in  (corrupted_code),
-        .syndrome (syndrome),
-        .p_tot    (p_tot)
-    );
-
-    // SECDED Corrector & Status Flags
-    secded_corrector u_corr (
-        .code_in   (corrupted_code),
-        .syndrome  (syndrome),
-        .p_tot     (p_tot),
-        .data_out  (data_out_comb),
-        .sec_flag  (sec_flag_comb),
-        .ded_flag  (ded_flag_comb),
-        .parity_ok (parity_ok_comb)
-    );
-
-    // Output Register Stage
-    always @(posedge clk) begin
-        if (!rst_n) begin
-            data_out_reg  <= 8'd0;
-            sec_flag_reg  <= 1'b0;
-            ded_flag_reg  <= 1'b0;
-            parity_ok_reg <= 1'b0;
-        end else begin
-            data_out_reg  <= data_out_comb;
-            sec_flag_reg  <= sec_flag_comb;
-            ded_flag_reg  <= ded_flag_comb;
-            parity_ok_reg <= parity_ok_comb;
-        end
-    end
-
-    // Tiny Tapeout Pin Mapping
-    assign uo_out  = data_out_reg;
-    assign uio_out = {parity_ok_reg, ded_flag_reg, sec_flag_reg, 5'b00000};
-    assign uio_oe  = 8'b1110_0000;
-
-    // Suppress unused inputs to avoid lint warnings
-    wire _unused = &{ena, uio_in[7:5], 1'b0};
-
-endmodule
-
-// -----------------------------------------------------------------------------
 // Submodule 1: Hamming(13,8) Extended Encoder
-// -----------------------------------------------------------------------------
 module hamming13_encoder (
     input  wire [7:0]  data_in,
     output wire [12:0] code_out
@@ -110,9 +25,8 @@ module hamming13_encoder (
     assign code_out = {hamming12, p0};
 endmodule
 
-// -----------------------------------------------------------------------------
+
 // Submodule 2: 0 / 1 / 2-Bit Fault Injector
-// -----------------------------------------------------------------------------
 module fault_injector (
     input  wire [12:0] code_in,
     input  wire [3:0]  err_pos,
@@ -150,9 +64,8 @@ module fault_injector (
     assign code_out = code_in ^ mask1 ^ mask2;
 endmodule
 
-// -----------------------------------------------------------------------------
+
 // Submodule 3: Syndrome & Overall Parity Calculator
-// -----------------------------------------------------------------------------
 module syndrome_calc (
     input  wire [12:0] code_in,
     output wire [3:0]  syndrome,
@@ -165,14 +78,14 @@ module syndrome_calc (
     assign p_tot       = ^code_in;
 endmodule
 
-// -----------------------------------------------------------------------------
+
 // Submodule 4: SECDED Corrector & Flag Generator
-// -----------------------------------------------------------------------------
 module secded_corrector (
     input  wire [12:0] code_in,
     input  wire [3:0]  syndrome,
     input  wire        p_tot,
     output wire [7:0]  data_out,
+    output wire [12:0] corrected_code,
     output wire        sec_flag,
     output wire        ded_flag,
     output wire        parity_ok
@@ -202,13 +115,10 @@ module secded_corrector (
         endcase
     end
 
-    wire [12:0] fixed = code_in ^ (sec_flag ? corr_mask : 13'd0);
+    assign corrected_code = code_in ^ (sec_flag ? corr_mask : 13'd0);
 
     assign data_out = {
-        fixed[12], fixed[11], fixed[10], fixed[9],
-        fixed[7],  fixed[6],  fixed[5],  fixed[3]
-    };
-    
-    wire _unused_fixed = &{fixed[8], fixed[4], fixed[2:0], 1'b0};
+        corrected_code[12], corrected_code[11], corrected_code[10], corrected_code[9],
+        corrected_code[7],  corrected_code[6],  corrected_code[5],  corrected_code[3]
+    };    
 endmodule
-

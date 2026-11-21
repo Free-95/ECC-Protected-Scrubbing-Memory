@@ -1,12 +1,12 @@
 `default_nettype none
 `timescale 1ns / 1ps
 
-/* This testbench just instantiates the module and makes some convenient wires
-   that can be driven / tested by the cocotb test_secded.py.
+/* This testbench instantiates the top module (16x13-bit ECC-Protected Scrubbing Memory)
+   and exposes the standard Tiny Tapeout ports to Cocotb (test_scrub_mem.py).
 */
 module tb ();
 
-  // Dump the signals to a FST file. You can view it with gtkwave or surfer.
+  // Dump signals to an FST file for viewing in GTKWave or Surfer.
   initial begin
     $dumpfile("tb.fst");
     $dumpvars(0, tb);
@@ -27,7 +27,7 @@ module tb ();
   wire VGND = 1'b0;
 `endif
 
-  tt_um_secded_13_8 user_project (
+  tt_um_ecc_prot_scrub_mem user_project (
 
       // Include power ports for the Gate Level test:
 `ifdef GL_TEST
@@ -35,14 +35,14 @@ module tb ();
       .VGND(VGND),
 `endif
 
-      .ui_in  (ui_in),    // Dedicated inputs
-      .uo_out (uo_out),   // Dedicated outputs
-      .uio_in (uio_in),   // IOs: Input path
-      .uio_out(uio_out),  // IOs: Output path
-      .uio_oe (uio_oe),   // IOs: Enable path (active high: 0=input, 1=output)
-      .ena    (ena),      // enable - goes high when design is selected
-      .clk    (clk),      // clock
-      .rst_n  (rst_n)     // not reset
+      .ui_in  (ui_in),    // Write data[7:0] or Inject {3'b0, err_double, err_pos[3:0]}
+      .uo_out (uo_out),   // Healed read data[7:0] or Telemetry byte[7:0]
+      .uio_in (uio_in),   // [3:0] addr, [5:4] cmd, [6] scrub_en
+      .uio_out(uio_out),  // [7] err_alert (sticky)
+      .uio_oe (uio_oe),   // Enable path (8'b1000_0000)
+      .ena    (ena),      // Enable - goes high when design is selected
+      .clk    (clk),      // Clock
+      .rst_n  (rst_n)     // Active-low synchronous reset
   );
 
 endmodule
