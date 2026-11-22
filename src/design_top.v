@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2026 Tejas Patel, Pandit Deendayal Energy University
- * SPDX-License-Identifier: Apache-2.0
+- Copyright (c) 2026 Tejas Patel, Pandit Deendayal Energy University
+- SPDX-License-Identifier: Apache-2.0
  */
 
 `default_nettype none
@@ -8,7 +8,7 @@
 module tt_um_ecc_prot_scrub_mem (
     input  wire [7:0] ui_in,    // Dedicated Inputs: Write data / Fault cfg / CSR scrub_en (bit 0)
     output wire [7:0] uo_out,   // Dedicated Outputs: Healed read data[7:0] or Telemetry byte[7:0]
-    input  wire [7:0] uio_in,   // IOs (in): [3:0] addr/telem_ctrl, [5:4] cmd
+    input  wire [7:0] uio_in,   // IOs (in): [2:0] addr / [3:0] telem_ctrl, [5:4] cmd
     output wire [7:0] uio_out,  // IOs (out): [6] stall, [7] err_alert (sticky)
     output wire [7:0] uio_oe,   // IOs (enable path): 1=output, 0=input
     input  wire       ena,      // enable input: always 1 when powered
@@ -22,22 +22,22 @@ module tt_um_ecc_prot_scrub_mem (
     localparam [1:0] CMD_TELEM  = 2'b11;
 
     // Decode host inputs
-    wire [3:0] addr        = uio_in[3:0];
+    wire [2:0] addr        = uio_in[2:0];
     wire [1:0] cmd         = uio_in[5:4];
     wire       host_mem_op = (cmd != CMD_TELEM);
     wire       csr_we      = (cmd == CMD_TELEM) && addr[2];
-    wire       telem_clr   = (cmd == CMD_TELEM) && addr[3];
+    wire       telem_clr   = (cmd == CMD_TELEM) && uio_in[3];
 
-    // 16 x 13-bit Single-Port ECC-protected register file
-    reg [12:0] mem [0:15];
+    // 8 x 13-bit Single-Port ECC-protected register file
+    reg [12:0] mem [0:7];
 
     // Arbiter, Scrubber, CSR & Telemetry registers
     reg        scrub_en_reg;
     reg [3:0]  starve_cnt;
-    reg [3:0]  scrub_ptr;
+    reg [2:0]  scrub_ptr;
     reg [3:0]  sec_cnt;
     reg [3:0]  ded_cnt;
-    reg [3:0]  last_err_addr;
+    reg [2:0]  last_err_addr;
     reg [3:0]  last_syndrome;
     reg        last_sec;
     reg        last_ded;
@@ -52,7 +52,7 @@ module tt_um_ecc_prot_scrub_mem (
     wire host_grant   = host_mem_op && !scrub_forced;
 
     // --- Shared Single-Port RAM Read Path & Single SECDED Decoder ---
-    wire [3:0]  port_addr     = scrub_grant ? scrub_ptr : addr;
+    wire [2:0]  port_addr     = scrub_grant ? scrub_ptr : addr;
     wire [12:0] port_raw_code = mem[port_addr];
 
     wire [12:0] wr_encoded_code;
@@ -120,7 +120,7 @@ module tt_um_ecc_prot_scrub_mem (
     always @(*) begin
         case (addr[1:0])
             2'b00:   telem_byte = {ded_cnt, sec_cnt};
-            2'b01:   telem_byte = {scrub_ptr, last_err_addr};
+            2'b01:   telem_byte = {1'b0, scrub_ptr, 1'b0, last_err_addr};
             2'b10:   telem_byte = {last_ded, last_sec, 2'b00, last_syndrome};
             default: telem_byte = {starve_cnt, 2'b00, scrub_en_reg, err_alert_reg};
         endcase
@@ -130,15 +130,15 @@ module tt_um_ecc_prot_scrub_mem (
     integer i;
     always @(posedge clk) begin
         if (!rst_n) begin
-            for (i = 0; i < 16; i = i + 1) begin
+            for (i = 0; i < 8; i = i + 1) begin
                 mem[i] <= 13'd0;    // Reset value 13'd0 is the exact valid Hamming(13,8) codeword for 8'h00.
             end
             scrub_en_reg  <= 1'b1;  // Autonomous scrubbing enabled by default
             starve_cnt    <= 4'd0;
-            scrub_ptr     <= 4'd0;
+            scrub_ptr     <= 3'd0;
             sec_cnt       <= 4'd0;
             ded_cnt       <= 4'd0;
-            last_err_addr <= 4'd0;
+            last_err_addr <= 3'd0;
             last_syndrome <= 4'd0;
             last_sec      <= 1'b0;
             last_ded      <= 1'b0;
@@ -169,7 +169,7 @@ module tt_um_ecc_prot_scrub_mem (
                 if (telem_clr) begin
                     sec_cnt       <= 4'd0;
                     ded_cnt       <= 4'd0;
-                    last_err_addr <= 4'd0;
+                    last_err_addr <= 3'd0;
                     last_syndrome <= 4'd0;
                     last_sec      <= 1'b0;
                     last_ded      <= 1'b0;
@@ -204,7 +204,7 @@ module tt_um_ecc_prot_scrub_mem (
 
             // 4. Scrubber Execution (Mandatory Cycle-Steal or Opportunistic Idle)
             if (scrub_grant) begin
-                scrub_ptr <= scrub_ptr + 4'd1;
+                scrub_ptr <= scrub_ptr + 3'd1;
 
                 if (dec_sec) begin
                     if (sec_cnt != 4'hF) begin

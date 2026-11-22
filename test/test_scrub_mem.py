@@ -82,7 +82,7 @@ class EccSinglePortArbiterModel:
         self.reset()
 
     def reset(self):
-        self.mem = [0] * 16
+        self.mem = [0] * 8
         self.scrub_en = 1       # Enabled by default on reset
         self.starve_cnt = 0
         self.scrub_ptr = 0
@@ -99,6 +99,7 @@ class EccSinglePortArbiterModel:
     def step(self, ui_in: int, addr: int, cmd: int):
         ui_in &= 0xFF
         addr &= 0xF
+        mem_addr = addr & 0x7
         cmd &= 0x3
 
         host_mem_op = (cmd != CMD_TELEM)
@@ -112,7 +113,7 @@ class EccSinglePortArbiterModel:
         host_grant   = host_mem_op and (not scrub_forced)
 
         # Shared single-port read & SECDED decode
-        port_addr = self.scrub_ptr if scrub_grant else addr
+        port_addr = self.scrub_ptr if scrub_grant else mem_addr
         port_raw  = self.mem[port_addr]
 
         wr_encoded    = encode_hamming13(ui_in)
@@ -186,7 +187,7 @@ class EccSinglePortArbiterModel:
                 n_uo_out = dec_data
                 if dec_sec or dec_ded:
                     n_err_alert     = 1
-                    n_last_err_addr = addr
+                    n_last_err_addr = mem_addr
                     n_last_syndrome = dec_syn
                     n_last_sec      = dec_sec
                     n_last_ded      = dec_ded
@@ -197,7 +198,7 @@ class EccSinglePortArbiterModel:
 
         # 4. Scrubber execution (mandatory cycle-steal or opportunistic idle)
         if scrub_grant:
-            n_scrub_ptr = (self.scrub_ptr + 1) & 0xF
+            n_scrub_ptr = (self.scrub_ptr + 1) & 0x7
             if dec_sec:
                 if self.sec_cnt != 0xF:
                     n_sec_cnt = self.sec_cnt + 1
@@ -318,9 +319,9 @@ async def test_reset_defaults_and_override(dut):
     assert reg3 == 0x02, f"Expected default scrub_en=1 (0x02), got {reg3:#x}"
     assert stall == 0 and alert == 0
 
-    # Disable scrubber so we can cleanly read all 16 RAM slots without triggering a stall
+    # Disable scrubber so we can cleanly read all 8 RAM slots without triggering a stall
     await set_scrub_en(dut, model, 0, ctx="rst_dis_scrub")
-    for addr in range(16):
+    for addr in range(8):
         data, stall, alert = await step_and_check(dut, model, 0, addr, CMD_READ, ctx=f"post_rst_ram{addr}")
         assert (data, stall, alert) == (0x00, 0, 0)
 
@@ -391,10 +392,11 @@ async def test_all_fault_positions_sec_ded_and_out_of_range(dut):
 
     # 1. Single-bit & out-of-range (err_double=0)
     for pos in range(16):
+        addr = pos & 0x7
         data_byte = (0x37 * (pos + 1)) & 0xFF
-        await step_and_check(dut, model, data_byte, pos, CMD_WRITE, ctx=f"sec_wr_{pos}")
-        await step_and_check(dut, model, pos, pos, CMD_INJECT, ctx=f"sec_inj_{pos}")
-        healed, stall, alert = await step_and_check(dut, model, 0, pos, CMD_READ, ctx=f"sec_rd_{pos}")
+        await step_and_check(dut, model, data_byte, addr, CMD_WRITE, ctx=f"sec_wr_{pos}")
+        await step_and_check(dut, model, pos, addr, CMD_INJECT, ctx=f"sec_inj_{pos}")
+        healed, stall, alert = await step_and_check(dut, model, 0, addr, CMD_READ, ctx=f"sec_rd_{pos}")
 
         assert stall == 0 and healed == data_byte
         if 1 <= pos <= 13:
@@ -408,10 +410,11 @@ async def test_all_fault_positions_sec_ded_and_out_of_range(dut):
 
     # 2. Double-bit (err_double=1) across all 16 err_pos values
     for pos in range(16):
+        addr = pos & 0x7
         data_byte = (0xC5 ^ (pos * 17)) & 0xFF
-        await step_and_check(dut, model, data_byte, pos, CMD_WRITE, ctx=f"ded_wr_{pos}")
-        await step_and_check(dut, model, (1 << 4) | pos, pos, CMD_INJECT, ctx=f"ded_inj_{pos}")
-        _, stall, alert = await step_and_check(dut, model, 0, pos, CMD_READ, ctx=f"ded_rd_{pos}")
+        await step_and_check(dut, model, data_byte, addr, CMD_WRITE, ctx=f"ded_wr_{pos}")
+        await step_and_check(dut, model, (1 << 4) | pos, addr, CMD_INJECT, ctx=f"ded_inj_{pos}")
+        _, stall, alert = await step_and_check(dut, model, 0, addr, CMD_READ, ctx=f"ded_rd_{pos}")
         assert stall == 0 and alert == 1
 
         diag, _, _ = await step_and_check(dut, model, 0, 2, CMD_TELEM, ctx=f"ded_diag_{pos}")
@@ -448,7 +451,7 @@ async def test_cumulative_fault_injection_and_cancellation(dut):
 @cocotb.test()
 async def test_opportunistic_idle_scrubbing_and_permanent_healing(dut):
     """
-    Inject 5 single-bit faults with scrub_en=0, re-enable scrub_en=1, run 16
+    Inject 5 single-bit faults with scrub_en=0, re-enable scrub_en=1, run 8
     opportunistic CMD_TELEM idle cycles (zero stalls), and prove all 5 are healed in RAM.
     """
     model = EccSinglePortArbiterModel()
@@ -457,17 +460,17 @@ async def test_opportunistic_idle_scrubbing_and_permanent_healing(dut):
     dut.rst_n.value = 1
     await set_scrub_en(dut, model, 0, ctx="idle_dis_scrub")
 
-    mem_expected = [(0x11 * i) & 0xFF for i in range(16)]
+    mem_expected = [(0x11 * i) & 0xFF for i in range(8)]
     for addr, val in enumerate(mem_expected):
         await step_and_check(dut, model, val, addr, CMD_WRITE, ctx=f"idle_wr_{addr}")
 
-    faults = [(0, 1), (4, 4), (7, 8), (11, 12), (15, 13)]
+    faults = [(0, 1), (2, 4), (4, 8), (6, 12), (7, 13)]
     for addr, pos in faults:
         await step_and_check(dut, model, pos, addr, CMD_INJECT, ctx=f"idle_inj_{addr}")
 
-    # Re-enable scrubber and sweep all 16 slots via idle CMD_TELEM cycles
+    # Re-enable scrubber and sweep all 8 slots via idle CMD_TELEM cycles
     await set_scrub_en(dut, model, 1, ctx="idle_en_scrub")
-    for c in range(16):
+    for c in range(8):
         _, stall, _ = await step_and_check(dut, model, 0, 0, CMD_TELEM, ctx=f"idle_swp_{c}")
         assert stall == 0, f"Unexpected stall during opportunistic idle scrub cycle {c}"
 
@@ -570,7 +573,7 @@ async def test_no_stall_when_scrub_disabled(dut):
 
     await set_scrub_en(dut, model, 0, clear=1, ctx="nostall_dis")
     for i in range(32):
-        _, stall, _ = await step_and_check(dut, model, i & 0xFF, i & 0xF, CMD_WRITE, ctx=f"nostall_wr_{i}")
+        _, stall, _ = await step_and_check(dut, model, i & 0xFF, i & 0x7, CMD_WRITE, ctx=f"nostall_wr_{i}")
         assert stall == 0, f"Stall asserted while scrub_en=0 at cycle {i}"
 
     reg1, _, _ = await step_and_check(dut, model, 0, 1, CMD_TELEM, ctx="nostall_ptr")
@@ -595,7 +598,7 @@ async def test_sec_and_ded_counter_saturation(dut):
     for r in range(17):
         pos = (r % 13) + 1
         await step_and_check(dut, model, pos, 4, CMD_INJECT, ctx=f"sat_sec_inj_{r}")
-        for s in range(16):
+        for s in range(8):
             await step_and_check(dut, model, 0, 0, CMD_TELEM, ctx=f"sat_sec_swp_{r}_{s}")
 
     cnts, _, _ = await step_and_check(dut, model, 0, 0, CMD_TELEM, ctx="sat_sec_chk")
@@ -605,7 +608,7 @@ async def test_sec_and_ded_counter_saturation(dut):
     await step_and_check(dut, model, 0x99, 7, CMD_WRITE, ctx="sat_wr7")
     await step_and_check(dut, model, (1 << 4) | 11, 7, CMD_INJECT, ctx="sat_ded_inj")
     for r in range(17):
-        for s in range(16):
+        for s in range(8):
             await step_and_check(dut, model, 0, 0, CMD_TELEM, ctx=f"sat_ded_swp_{r}_{s}")
 
     cnts, _, alert = await step_and_check(dut, model, 0, 0, CMD_TELEM, ctx="sat_both_chk")
@@ -626,11 +629,11 @@ async def test_mid_op_reset_and_unused_pin_immunity(dut):
     await FallingEdge(dut.clk)
     dut.rst_n.value = 1
 
-    # Disable scrubber, write & corrupt addr 9 while toggling unused uio_in[7:6]
+    # Disable scrubber, write & corrupt addr 5 while toggling unused uio_in[7:6]
     await set_scrub_en(dut, model, 0, clear=1, ctx="mid_dis")
-    await step_and_check(dut, model, 0xDE, 9, CMD_WRITE, unused_hi=0b11, ctx="mid_wr")
-    await step_and_check(dut, model, 3, 9, CMD_INJECT, unused_hi=0b10, ctx="mid_inj")
-    val, stall, alert = await step_and_check(dut, model, 0, 9, CMD_READ, unused_hi=0b01, ctx="mid_rd")
+    await step_and_check(dut, model, 0xDE, 5, CMD_WRITE, unused_hi=0b11, ctx="mid_wr")
+    await step_and_check(dut, model, 3, 5, CMD_INJECT, unused_hi=0b10, ctx="mid_inj")
+    val, stall, alert = await step_and_check(dut, model, 0, 5, CMD_READ, unused_hi=0b01, ctx="mid_rd")
     assert (val, stall, alert) == (0xDE, 0, 1)
 
     # Assert synchronous reset mid-operation
@@ -640,11 +643,11 @@ async def test_mid_op_reset_and_unused_pin_immunity(dut):
     model.reset()
     assert int(dut.uo_out.value) == 0 and int(dut.uio_out.value) == 0
 
-    # Release reset: confirm scrub_en restored to 1 and addr 9 cleared to 0x00
+    # Release reset: confirm scrub_en restored to 1 and addr 5 cleared to 0x00
     dut.rst_n.value = 1
     reg3, _, alert = await step_and_check(dut, model, 0, 3, CMD_TELEM, ctx="mid_post_reg3")
     assert reg3 == 0x02 and alert == 0
-    val, _, alert = await step_and_check(dut, model, 0, 9, CMD_READ, ctx="mid_post_rd9")
+    val, _, alert = await step_and_check(dut, model, 0, 5, CMD_READ, ctx="mid_post_rd5")
     assert val == 0x00 and alert == 0
 
 
@@ -661,9 +664,9 @@ async def test_randomized_golden_scoreboard_stress(dut):
     await FallingEdge(dut.clk)
     dut.rst_n.value = 1
 
-    # Seed all 16 RAM slots with scrubber disabled
+    # Seed all 8 RAM slots with scrubber disabled
     await set_scrub_en(dut, model, 0, clear=1, ctx="rand_init_dis")
-    for addr in range(16):
+    for addr in range(8):
         await step_and_check(dut, model, rng.randrange(256), addr, CMD_WRITE, ctx="rand_init")
     await set_scrub_en(dut, model, 1, ctx="rand_init_en")
 
@@ -689,13 +692,13 @@ async def test_randomized_golden_scoreboard_stress(dut):
             stall_count += 1
             pending_retry = (ui_val, addr, cmd)
 
-        # Every 300 cycles, pause scrubber briefly to audit all 4 telemetry regs and all 16 RAM slots
+        # Every 300 cycles, pause scrubber briefly to audit all 4 telemetry regs and all 8 RAM slots
         if (cycle + 1) % 300 == 0 and pending_retry is None:
             saved_scrub_en = model.scrub_en
             await set_scrub_en(dut, model, 0, ctx=f"audit_dis_{cycle}")
             for r in range(4):
                 await step_and_check(dut, model, 0, r, CMD_TELEM, ctx=f"audit_t{r}_{cycle}")
-            for a in range(16):
+            for a in range(8):
                 await step_and_check(dut, model, 0, a, CMD_READ, ctx=f"audit_ram{a}_{cycle}")
             await set_scrub_en(dut, model, saved_scrub_en, ctx=f"audit_res_{cycle}")
 

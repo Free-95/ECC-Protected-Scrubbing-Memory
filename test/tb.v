@@ -1,7 +1,7 @@
 `default_nettype none
 `timescale 1ns / 1ps
 
-/* This testbench instantiates the top module (16x13-bit ECC-Protected Scrubbing Memory)
+/* This testbench instantiates the top module (8x13-bit ECC-Protected Scrubbing Memory)
    and exposes the standard Tiny Tapeout ports to Cocotb (test_scrub_mem.py).
 */
 module tb ();
@@ -37,7 +37,7 @@ module tb ();
 
       .ui_in  (ui_in),    // Write data[7:0] / Inject Fault {3'b0, err_double, err_pos[3:0]} / CSR scrub_en (bit 0)
       .uo_out (uo_out),   // Healed read data[7:0] or Telemetry byte[7:0]
-      .uio_in (uio_in),   // [3:0] addr/telem_ctrl, [5:4] cmd
+      .uio_in (uio_in),   // [2:0] addr / [3:0] telem_ctrl, [5:4] cmd
       .uio_out(uio_out),  // [6] stall, [7] err_alert (sticky)
       .uio_oe (uio_oe),   // Enable path (8'b1100_0000)
       .ena    (ena),      // Enable - goes high when design is selected
