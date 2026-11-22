@@ -1,25 +1,27 @@
-# Testbench for 16x13-bit ECC-Protected Scrubbing Memory
+# Testbench for 8x13-bit ECC-Protected Scrubbing Memory
 
-This directory contains the [Cocotb](https://docs.cocotb.org/en/stable/) verification suite for `tt_um_ecc_prot_scrub_mem` (`../src/design_top.v`).
+This directory contains the [Cocotb](https://docs.cocotb.org/en/stable/) verification suite for `tt_um_ecc_prot_scrub_mem`.
 
 ## Files
 
-- `test_scrub_mem.py` — Sign-off Cocotb verification suite with an independent cycle-accurate Python golden scoreboard
+- `test_scrub_mem.py` — Sign-off Cocotb verification testbench with an independent cycle-accurate Python golden reference model
 - `tb.v` — Verilog testbench wrapper (handles `tb.fst` waveform dumping and `GL_TEST` power pins)
 - `Makefile` — Runs both RTL and Gate-Level Simulations via Icarus Verilog
 - `tb.gtkw` — Preconfigured GTKWave signal layout for `tb.user_project`
 - `requirements.txt` — Python test dependencies (`cocotb==2.1.0`, `pytest==8.4.2`)
 
-## Verification Coverage (`test_scrub_mem.py`)
+## Verification Coverage
 
-1. **`test_reset_override_and_pin_directions`** — Checks `uio_oe == 8'b1000_0000`, verifies active writes/fault injections are ignored while `rst_n = 0`, and confirms all 16 RAM slots and 4 telemetry registers reset cleanly to `0`.
-2. **`test_all_fault_positions_sec_ded_and_out_of_range`** — Tests all 16 `err_pos` values (`0`–`15`) for both `err_double = 0` and `err_double = 1` (including out-of-range `0`, `14`, `15` and `err_pos = 13` wrap-around), plus host reads on DED words without miscorrection.
-3. **`test_cumulative_fault_injection_and_cancellation`** — Confirms two sequential 1-bit flips on the same bit cancel out cleanly, while two 1-bit flips on distinct bits escalate into an uncorrectable DED.
-4. **`test_scrubber_pointer_pause_advance_and_telem_scrub`** — Verifies `scrub_ptr` advances and heals faults during `CMD_READ` and `CMD_TELEM` (`addr[3] = 0`) when `scrub_en = 1`, and strictly pauses during `CMD_WRITE`, `CMD_INJECT`, and telemetry clear (`addr[3] = 1`).
-5. **`test_simultaneous_host_read_and_scrubber_collisions`** — Exercises same-cycle collisions where the host reads a faulted word while the scrubber heals either a different address (verifying scrubber priority on `last_*` telemetry) or the exact same address.
-6. **`test_sec_and_ded_counter_saturation`** — Verifies both 4-bit `sec_cnt` and `ded_cnt` saturate at `15` (`4'hF`) without wrapping around, and tests atomic telemetry read-and-clear.
-7. **`test_mid_op_reset_and_unused_pin_immunity`** — Asserts `rst_n = 0` mid-operation to verify full state recovery, and confirms toggling unused `uio_in[7]` and `addr[2]` (during telemetry reads) has zero side effects.
-8. **`test_randomized_golden_scoreboard_stress`** — Runs a 2,000-cycle deterministic pseudo-random stress test checked cycle-by-cycle against Python golden model, with periodic full-RAM and full-telemetry audits every 250 cycles.
+1. **`test_reset_defaults_and_override`** — Checks `uio_oe == 8'b1100_0000`, verifies active writes/injections are ignored while `rst_n = 0`, confirms default `scrub_en = 1` after reset, and checks all 8 RAM slots reset cleanly to `0`.
+2. **`test_csr_scrub_enable_disable_and_combined_clear`** — Verifies internal CSR transition semantics (`scrub_en` `1→0` final idle scrub, `0→1` next-cycle activation), combined `csr_we + telem_clr` (`uio_in[3:2] = 2'b11`), and `starve_cnt` hold behavior during `telem_clr`.
+3. **`test_all_fault_positions_sec_ded_and_out_of_range`** — Tests all 16 `err_pos` values (`0`–`15`) for both `err_double = 0` and `err_double = 1` (including out-of-range `0`, `14`, `15` and `err_pos = 13` wrap-around), plus host reads on DED words without miscorrection.
+4. **`test_cumulative_fault_injection_and_cancellation`** — Confirms two sequential 1-bit flips on the same bit cancel out cleanly, while two 1-bit flips on distinct bits escalate into an uncorrectable DED.
+5. **`test_opportunistic_idle_scrubbing_and_permanent_healing`** — Injects 5 single-bit faults with `scrub_en = 0`, re-enables `scrub_en = 1`, sweeps all 8 slots via opportunistic `CMD_TELEM` idle cycles with zero stalls, and verifies all 5 words are permanently healed in RAM.
+6. **`test_watchdog_cycle_steal_and_stall_handshake`** — Proves starvation prevention when `scrub_en = 1`: after 15 consecutive host memory ops, the 16th triggers a mandatory 1-cycle scrub with `stall = 1`, holds `uo_out`, protects RAM against the preempted op, and accepts the host retry on cycle 17 (tested for `CMD_WRITE`, `CMD_INJECT`, and `CMD_READ`).
+7. **`test_no_stall_when_scrub_disabled`** — Confirms 32 consecutive host memory ops never assert `stall`, advance `scrub_ptr`, or increment `starve_cnt` while `scrub_en = 0`.
+8. **`test_sec_and_ded_counter_saturation`** — Verifies both 4-bit `sec_cnt` and `ded_cnt` saturate at `15` (`4'hF`) without wrapping around, and tests atomic telemetry read-and-clear.
+9. **`test_mid_op_reset_and_unused_pin_immunity`** — Asserts `rst_n = 0` mid-operation to verify full state recovery (clearing RAM/counters/stall and restoring `scrub_en = 1`), and confirms toggling unused `uio_in[7:6]` has zero side effects.
+10. **`test_randomized_golden_scoreboard_stress`** — Runs a 3,000-cycle deterministic pseudo-random stress test exercising all commands, CSR toggles, watchdog stalls with automatic host retries, and periodic full-RAM (8 slots) and full-telemetry audits every 300 cycles against `EccSinglePortArbiterModel` (Python golden reference model).
 
 ## Prerequisites
 
