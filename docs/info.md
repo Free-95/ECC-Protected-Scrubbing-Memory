@@ -31,10 +31,9 @@ ui_in[7:0] (data_in / fault_cfg / csr_val)      uio_in[2:0] (addr), uio_in[3] (c
    │                                                      ▼                    ▼
    │                                                 uo_out[7:0]          uio_out[7:6]
    │                                             (data_out / telem)   (err_alert, stall)
-
 ```
 
-### Codeword Bit Mapping (`code[12:0]`)
+### Codeword Bit Mapping
 
 Every 8-bit byte written to memory is encoded into a 13-bit extended Hamming codeword with parity bits at power-of-two positions plus overall even parity (`P0`) at bit `0`, allowing the 4-bit syndrome to index any single-bit error directly:
 
@@ -53,7 +52,7 @@ Every 8-bit byte written to memory is encoded into a 13-bit extended Hamming cod
 
 * **Fault Injection (`CMD_INJECT`):** `err_pos` (`ui_in[3:0]`) values `1`–`13` flip codeword bit `err_pos - 1` inside `mem[addr]`. Setting `err_double` (`ui_in[4]`) to `1` flips an additional adjacent bit (wrapping `13` to bit `0`) to create an uncorrectable 2-bit error. Values `0`, `14`, and `15` inject no fault when `err_double = 0`, or flip bits `[1:0]` when `err_double = 1`.
 * **3-Tier Watchdog Arbiter & `stall` Handshake (`uio_out[6]`):** Because the RAM array and SECDED decoder are single-ported, an internal arbiter prevents scrubber starvation without dropping host transactions:
-1. **Mandatory Cycle-Steal (Highest Priority):** When `scrub_en = 1` (enabled by default after reset), each consecutive host memory operation increments `starve_cnt`. When `starve_cnt == 15`, the arbiter preempts the next host memory op for 1 cycle to scrub `mem[scrub_ptr]`, resets `starve_cnt` to `0`, holds `uo_out`, and asserts **`stall` (`uio_out[6] = 1`)** so the host re-issues the command on the following cycle.
+1. **Mandatory Cycle-Steal (Highest Priority):** When `scrub_en = 1` (enabled by default after reset), each consecutive host memory operation increments `starve_cnt`. When `starve_cnt == 15`, the arbiter preempts the next host memory op for 1 cycle to scrub `mem[scrub_ptr]`, resets `starve_cnt` to `0`, holds `uo_out`, and asserts `stall` (`uio_out[6] = 1`) so the host re-issues the command on the following cycle.
 2. **Normal Host Access:** When `starve_cnt < 15` (or `scrub_en = 0`), host memory operations execute immediately with `stall = 0`.
 3. **Opportunistic Idle Scrubbing:** During non-clearing `CMD_TELEM` cycles (`uio_in[3] = 0`) while `scrub_en = 1`, the scrubber uses the idle RAM port for free (`stall = 0`), resets `starve_cnt` to `0`, heals any 1-bit error in place, and advances `scrub_ptr` (`0x0`–`0x7`).
 
