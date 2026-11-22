@@ -35,11 +35,11 @@ module tb ();
       .VGND(VGND),
 `endif
 
-      .ui_in  (ui_in),    // Write data[7:0] or Inject {3'b0, err_double, err_pos[3:0]}
+      .ui_in  (ui_in),    // Write data[7:0] / Inject Fault {3'b0, err_double, err_pos[3:0]} / CSR scrub_en (bit 0)
       .uo_out (uo_out),   // Healed read data[7:0] or Telemetry byte[7:0]
-      .uio_in (uio_in),   // [3:0] addr, [5:4] cmd, [6] scrub_en
-      .uio_out(uio_out),  // [7] err_alert (sticky)
-      .uio_oe (uio_oe),   // Enable path (8'b1000_0000)
+      .uio_in (uio_in),   // [3:0] addr/telem_ctrl, [5:4] cmd
+      .uio_out(uio_out),  // [6] stall, [7] err_alert (sticky)
+      .uio_oe (uio_oe),   // Enable path (8'b1100_0000)
       .ena    (ena),      // Enable - goes high when design is selected
       .clk    (clk),      // Clock
       .rst_n  (rst_n)     // Active-low synchronous reset

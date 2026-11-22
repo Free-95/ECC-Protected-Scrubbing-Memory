@@ -85,7 +85,7 @@ module secded_corrector (
     input  wire [3:0]  syndrome,
     input  wire        p_tot,
     output wire [7:0]  data_out,
-    output wire [12:0] corrected_code,
+    output wire [12:0] fixed_code,
     output wire        sec_flag,
     output wire        ded_flag,
     output wire        parity_ok
@@ -115,10 +115,10 @@ module secded_corrector (
         endcase
     end
 
-    assign corrected_code = code_in ^ (sec_flag ? corr_mask : 13'd0);
+    assign fixed_code = code_in ^ (sec_flag ? corr_mask : 13'd0);
 
     assign data_out = {
-        corrected_code[12], corrected_code[11], corrected_code[10], corrected_code[9],
-        corrected_code[7],  corrected_code[6],  corrected_code[5],  corrected_code[3]
+        fixed_code[12], fixed_code[11], fixed_code[10], fixed_code[9],
+        fixed_code[7],  fixed_code[6],  fixed_code[5],  fixed_code[3]
     };    
 endmodule
